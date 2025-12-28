@@ -1,108 +1,121 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
 import google.generativeai as genai
 
 # -----------------------------------------------------------
-# 1. 설정 및 기본 데이터
+# 1. 화면 설정 (가장 먼저 실행되어야 함)
 # -----------------------------------------------------------
-st.set_page_config(page_title="학습매니저 Pro", layout="wide")
+st.set_page_config(page_title="학습매니저 재부팅", layout="centered")
 
-# 주차 정보 생성 함수
+# 화면이 멈췄는지 확인하기 위한 로딩 메시지
+status_text = st.empty()
+status_text.info("🚀 시스템을 시작하고 있습니다... (1/3)")
+time.sleep(0.5)
+
+# -----------------------------------------------------------
+# 2. 기본 설정
+# -----------------------------------------------------------
+# 주차 정보 생성
 def generate_weeks():
     weeks = {}
-    curr_date = datetime(2026, 1, 4)
+    curr = datetime(2026, 1, 4)
     for i in range(1, 54):
-        if curr_date.year > 2026: break
-        end_date = curr_date + timedelta(days=6)
-        period = f"{curr_date.month}/{curr_date.day}(일) ~ {end_date.month}/{end_date.day}(토)"
+        end = curr + pd.Timedelta(days=6)
+        period = f"{curr.month}/{curr.day} ~ {end.month}/{end.day}"
         weeks[f"{i}주차"] = period
-        curr_date += timedelta(days=7)
+        curr += pd.Timedelta(days=7)
     return weeks
 
 WEEKS = generate_weeks()
-
-# 데이터 컬럼 정의 (신규생/재원생 구분 포함)
-COLUMNS = [
-    "구분", "이름", "반", "출신중", "배정고", "상담특이사항",
-    "수강과목", "학습교재", 
-    "주차", "기간", "작성일",
-    "과제수행_개인", "과제수행_반평균", 
-    "오답수_개인", "오답수_반평균", 
-    "AI_다듬은_멘트"
-]
+COLUMNS = ["구분", "이름", "반", "과목", "주차", "상담내용", "AI조언", "작성일"]
 
 # -----------------------------------------------------------
-# 2. 기능 로직 (AI 및 데이터)
+# 3. 기능 함수 (안전 모드)
 # -----------------------------------------------------------
-def init_gemini():
-    """Gemini API 연결 확인"""
-    if "GEMINI_API_KEY" in st.secrets:
-        try:
-            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            return True
-        except:
-            return False
-    return False
+status_text.info("🤖 AI 기능을 연결하고 있습니다... (2/3)")
 
-def refine_text_with_ai(text, student_name, status):
-    """
-    AI 상담 문구 다듬기 (오류 수정됨)
-    gemini-1.5-flash -> gemini-pro 로 변경하여 404 에러 방지
-    """
-    if not text: return ""
+def get_ai_response(prompt):
+    """AI 연결이 실패해도 앱이 죽지 않도록 방어"""
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key:
+        return "⚠️ API 키가 설정되지 않았습니다."
     try:
-        # [수정] 가장 안정적인 모델인 gemini-pro 사용
+        genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-pro')
-        
-        prompt = f"""
-        너는 입시 학원의 베테랑 상담 실장이야.
-        아래 '상담 메모'는 선생님이 급하게 작성한 내용이야.
-        이 내용을 학부모님께 카톡이나 문자로 보낼 수 있도록,
-        매우 정중하고 전문적이며, 신뢰감을 주는 '완성된 문장'으로 다듬어줘.
-        
-        - 학생 이름: {student_name}
-        - 학생 상태: {status} (신규생이면 더 환영하는 느낌, 재원생이면 꼼꼼한 관리 느낌)
-        - 상담 메모: {text}
-        
-        문장은 바로 복사해서 보낼 수 있게 '안녕하세요, OO 학부모님...'으로 시작해줘.
-        """
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"AI 호출 오류: {e}"
+        return f"AI 에러 발생: {str(e)}"
 
-def load_data():
-    """데이터 불러오기"""
-    # 1. 구글 시트
-    if "connections" in st.secrets and "gsheets" in st.secrets.connections:
-        try:
-            from streamlit_gsheets import GSheetsConnection
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            df = conn.read(worksheet="Sheet1")
-            for col in COLUMNS:
-                if col not in df.columns: df[col] = ""
-            return df
-        except:
-            pass
-    # 2. 로컬 CSV
+def load_csv():
+    """CSV 파일만 사용 (멈춤 방지)"""
     try:
-        return pd.read_csv("student_records.csv")
+        return pd.read_csv("data.csv")
     except FileNotFoundError:
         return pd.DataFrame(columns=COLUMNS)
 
-def save_data_action(df):
-    """데이터 저장하기"""
-    if "connections" in st.secrets and "gsheets" in st.secrets.connections:
-        try:
-            from streamlit_gsheets import GSheetsConnection
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            conn.update(worksheet="Sheet1", data=df)
-            return "구글 시트 저장 완료"
-        except:
-            pass
-    df.to_csv("student_records.csv", index=False)
-    return "CSV 저장 완료"
+def save_csv(df):
+    df.to_csv("data.csv", index=False)
 
 # -----------------------------------------------------------
-#
+# 4. 메인 화면 그리기
+# -----------------------------------------------------------
+status_text.success("✅ 시스템 준비 완료! 화면을 불러옵니다. (3/3)")
+time.sleep(0.5)
+status_text.empty() # 로딩 메시지 삭제
+
+def main():
+    st.title("👨‍🏫 학습매니저 (복구 모드)")
+    st.caption("현재 안전 모드로 실행 중입니다. (데이터는 CSV로 자동 저장됨)")
+
+    # 데이터 로드
+    df = load_csv()
+
+    # 입력 탭과 조회 탭 분리
+    tab1, tab2 = st.tabs(["📝 상담 입력", "📊 기록 확인"])
+
+    with tab1:
+        st.subheader("신규 상담 작성")
+        with st.form("save_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            name = c1.text_input("학생 이름", placeholder="예: 김철수")
+            category = c2.radio("구분", ["재원생", "신규생"], horizontal=True)
+            
+            c3, c4 = st.columns(2)
+            cls = c3.text_input("반 이름")
+            week = c4.selectbox("주차", list(WEEKS.keys()))
+            
+            memo = st.text_area("상담 메모 (선생님 작성)", height=100)
+            
+            # AI 미리보기 버튼 (폼 안에 있으면 동작 안하므로 폼 제출 버튼으로 처리)
+            submit = st.form_submit_button("저장 및 AI 변환")
+
+            if submit:
+                if not name:
+                    st.error("이름을 입력해주세요!")
+                else:
+                    # AI 변환 시도
+                    with st.spinner("AI가 문장을 다듬는 중..."):
+                        ai_prompt = f"학부모님께 보낼 문자야. 정중하게 다듬어줘.\n학생: {name}\n상태: {category}\n내용: {memo}"
+                        ai_result = get_ai_response(ai_prompt)
+                    
+                    # 데이터 저장
+                    new_data = {
+                        "구분": category, "이름": name, "반": cls, "과목": "수학",
+                        "주차": week, "상담내용": memo, "AI조언": ai_result,
+                        "작성일": datetime.now().strftime("%Y-%m-%d")
+                    }
+                    df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+                    save_csv(df)
+                    
+                    st.success(f"{name} 학생 상담이 저장되었습니다!")
+                    st.info(f"💌 [AI 추천 문구]\n{ai_result}")
+
+    with tab2:
+        st.write(f"총 {len(df)}건의 상담 기록이 있습니다.")
+        st.dataframe(df)
+
+if __name__ == "__main__":
+    main()
