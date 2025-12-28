@@ -1,80 +1,93 @@
 import streamlit as st
 import google.generativeai as genai
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
 
-# ---------------------------------------------------------
-# [보안 설정] API 키를 코드에 직접 적지 않고 Secrets에서 가져옵니다.
-# 이렇게 해야 GitHub에 코드를 올려도 키가 정지되지 않습니다.
-# ---------------------------------------------------------
+# 1. 페이지 설정
+st.set_page_config(page_title="학습매니저", page_icon="👩‍🏫")
+st.title("👩‍🏫 학습매니저")
+
+# 2. API 키 및 구글 시트 설정 (secrets에서 가져옴)
 try:
-    # Streamlit 사이트의 'Secrets'에 저장된 키를 불러옵니다.
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
-except FileNotFoundError:
-    st.error("⚠️ API 키를 찾을 수 없습니다. Streamlit 설정(Secrets)에 키를 등록해주세요.")
-    st.stop()
+    # Gemini API 설정
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    
+    # 구글 시트 인증 설정
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    
+    # secrets에 저장된 구글 시트 인증 정보 로드
+    credentials = Credentials.from_service_account_info(
+        st.secrets["GOOGLE_SHEETS_CREDENTIALS"],
+        scopes=scopes
+    )
+    gc = gspread.authorize(credentials)
+    
+    # 시트 열기 (URL 또는 시트 이름으로)
+    # secrets에 SHEET_URL이 있다면 그것을 사용하고, 없다면 파일명으로 시도
+    if "SHEET_URL" in st.secrets:
+        sh = gc.open_by_url(st.secrets["SHEET_URL"])
+    else:
+        # 만약 URL이 없다면 아래 '학습매니저_데이터' 부분을 실제 시트 이름으로 바꿔주세요
+        sh = gc.open("학습매니저_데이터") 
+        
+    worksheet = sh.sheet1
+
 except Exception as e:
-    st.error(f"⚠️ 연결 오류 발생: {e}")
+    st.error(f"설정 오류: secrets 설정이나 구글 시트 연결을 확인해주세요.\n{e}")
     st.stop()
 
-
-def generate_message(name, status, week, memo):
-    """Gemini 1.5 Flash 모델을 이용해 상담 문자를 생성하는 함수"""
-    
-    # 최신 모델 사용
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    
-    prompt = f"""
-    당신은 친절하고 전문적인 학원 상담 실장입니다.
-    아래 내용을 바탕으로 학부모님께 보낼 정중하고 깔끔한 상담 문자를 작성해주세요.
-
-    [학생 정보]
-    - 이름: {name}
-    - 구분: {status}
-    - 기간: {week}
-    
-    [상담/특이사항 메모]
-    {memo}
-
-    문자 내용은 바로 복사해서 보낼 수 있도록 핵심 내용과 인사를 포함해줘.
-    """
-    
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"오류 발생: {str(e)}"
-
-# ---------------------------------------------------------
-# 화면 구성 (UI)
-# ---------------------------------------------------------
-
-st.set_page_config(page_title="학습매니저", page_icon="🧑‍🏫")
-
-st.title("🧑‍🏫 학습매니저")
-
-with st.container():
-    col1, col2 = st.columns([2, 1])
-    
+# 3. 입력 폼 UI
+with st.form("consultation_form"):
+    col1, col2 = st.columns(2)
     with col1:
-        name = st.text_input("학생 이름", placeholder="예: 이효승")
+        student_name = st.text_input("학생 이름", placeholder="이름을 입력하세요")
     with col2:
-        status = st.radio("구분", ["재원생", "신규생"], horizontal=True)
+        student_type = st.radio("구분", ["재원생", "신규생"], horizontal=True)
 
-    week = st.selectbox("주차", ["1주차", "2주차", "3주차", "4주차", "월말 평가"])
+    week = st.selectbox("주차", ["1주차", "2주차", "3주차", "4주차", "5주차"])
     
-    memo = st.text_area("상담 메모", height=150, 
-                        placeholder="학생의 학습 태도, 특이사항, 진도 등을 자유롭게 적어주세요.")
+    memo = st.text_area("상담 메모", placeholder="학생의 특징이나 상담 내용을 적어주세요 (예: 기억력이 나쁨, 숙제 성실함 등)", height=150)
 
-    if st.button("저장 및 변환", type="primary"):
-        if not name:
-            st.warning("학생 이름을 입력해주세요.")
-        elif not memo:
-            st.warning("상담 메모를 입력해주세요.")
-        else:
-            with st.spinner(f"{name} 학생의 상담 문자를 생성 중입니다..."):
-                result_text = generate_message(name, status, week, memo)
-            
-            st.success("완료!")
-            
-            st.subheader("결과 확인")
-            st.code(result_text, language=None)
+    submit_button = st.form_submit_button("저장 및 변환")
+
+# 4. 저장 및 변환 로직
+if submit_button:
+    if not student_name or not memo:
+        st.warning("학생 이름과 상담 메모를 모두 입력해주세요.")
+    else:
+        with st.spinner("AI가 상담 내용을 정리하고 있습니다..."):
+            try:
+                # [수정 포인트 1] 모델 이름 변경 (404 오류 해결 시도)
+                # gemini-1.5-flash가 안 될 경우 gemini-pro로 자동 시도하도록 처리
+                try:
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(
+                        f"다음은 학생 상담 메모야. 이 내용을 바탕으로 학부모님께 보낼 정중하고 전문적인 상담 피드백 문구를 작성해줘.\n\n학생 이름: {student_name}\n메모: {memo}"
+                    )
+                except Exception:
+                    # 1.5-flash가 안 되면 gemini-pro 사용
+                    model = genai.GenerativeModel('gemini-pro')
+                    response = model.generate_content(
+                        f"다음은 학생 상담 메모야. 이 내용을 바탕으로 학부모님께 보낼 정중하고 전문적인 상담 피드백 문구를 작성해줘.\n\n학생 이름: {student_name}\n메모: {memo}"
+                    )
+
+                ai_result = response.text
+
+                # [수정 포인트 2] 끊겨서 오류가 났던 리스트 문법 수정
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                new_row = [now, student_name, student_type, week, memo, ai_result]
+                
+                # 시트에 추가
+                worksheet.append_row(new_row)
+
+                st.success("저장 완료!")
+                
+                st.subheader("결과 확인")
+                st.info(ai_result)
+
+            except Exception as e:
+                st.error(f"오류가 발생했습니다: {e}")
