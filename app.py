@@ -123,4 +123,5 @@ def main():
                 user_class = st.text_input("배정 반", value="1B")
                 high = st.text_input("배정 예정 고등학교")
             
-            note = st.text_area("상
+            note = st.text_area("상담 내용")
+
