@@ -71,7 +71,22 @@ def load_data():
         return pd.read_csv("student_records.csv")
     except FileNotFoundError:
         return pd.DataFrame(columns=COLUMNS)
+def main():
+    st.title("👨‍🏫 학습매니저 (AI 탑재)")
+    
+    # --- 👇 여기에 붙여넣으세요 👇 ---
+    with st.expander("🛠️ AI 모델 진단 (에러 해결용)"):
+        if st.button("사용 가능한 모델 리스트 확인"):
+            try:
+                models = [m.name for m in genai.list_models()]
+                st.success("확인된 모델 목록:")
+                st.write(models)
+            except Exception as e:
+                st.error(f"에러 발생: {e}")
+    # --- 👆 여기까지 👆 ---
 
+    if "connections" not in st.secrets:
+        # ... (원래 코드 계속)
 def save_data(df):
     if "connections" in st.secrets and "gsheets" in st.secrets.connections:
         try:
@@ -203,3 +218,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
