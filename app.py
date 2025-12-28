@@ -1,91 +1,126 @@
 import streamlit as st
 import pandas as pd
-import os
-from datetime import datetime
+from datetime import datetime, timedelta # 날짜 계산용 기능 추가
+import re
 
-st.set_page_config(page_title="학생 학습 관리", layout="centered")
-DATA_FILE = "student_records.csv"
+# -----------------------------------------------------------
+# 1. 설정 및 2026년 주차 자동 생성
+# -----------------------------------------------------------
+st.set_page_config(page_title="학습매니저", layout="centered")
 
+def generate_weeks():
+    weeks = {}
+    # 2026년의 첫 번째 일요일은 1월 4일입니다.
+    curr_date = datetime(2026, 1, 4)
+    
+    for i in range(1, 54): # 1주차 ~ 53주차까지 넉넉하게 생성
+        if curr_date.year > 2026: # 2026년 넘어가면 중단
+            break
+            
+        end_date = curr_date + timedelta(days=6) # 토요일
+        
+        # 날짜 포맷: "1/4(일) ~ 1/10(토)"
+        period = f"{curr_date.month}/{curr_date.day}(일) ~ {end_date.month}/{end_date.day}(토)"
+        weeks[f"{i}주차"] = period
+        
+        # 다음 주 일요일로 이동
+        curr_date += timedelta(days=7)
+    return weeks
+
+# 주차 정보 생성
+WEEKS = generate_weeks()
+
+# 기본 컬럼 정의
+COLUMNS = [
+    "이름", "반", "출신중", "배정고", "상담특이사항",
+    "수강과목", "학습교재", 
+    "주차", "기간", "작성일",
+    "과제수행_개인", "과제수행_반평균", 
+    "오답수_개인", "오답수_반평균", 
+    "질문문항", "난이도", "총평"
+]
+
+# -----------------------------------------------------------
+# 2. 데이터 저장/불러오기 (구글 시트 + CSV 자동 전환)
+# -----------------------------------------------------------
 def load_data():
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
-    else:
-        columns = ["이름", "반", "수강과목", "학습교재", "주차", "작성일", "과제수행_개인", "과제수행_반평균", "오답수_개인", "오답수_반평균", "질문문항", "난이도", "총평"]
-        return pd.DataFrame(columns=columns)
+    if "connections" in st.secrets and "gsheets" in st.secrets.connections:
+        try:
+            from streamlit_gsheets import GSheetsConnection
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            df = conn.read(worksheet="Sheet1")
+            if df.empty or len(df.columns) < len(COLUMNS):
+                return pd.DataFrame(columns=COLUMNS)
+            return df
+        except Exception:
+            pass 
+
+    try:
+        return pd.read_csv("student_records.csv")
+    except FileNotFoundError:
+        return pd.DataFrame(columns=COLUMNS)
 
 def save_data(df):
-    df.to_csv(DATA_FILE, index=False)
+    if "connections" in st.secrets and "gsheets" in st.secrets.connections:
+        try:
+            from streamlit_gsheets import GSheetsConnection
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            conn.update(worksheet="Sheet1", data=df)
+            return "구글 시트에 저장되었습니다!"
+        except Exception as e:
+            return f"구글 시트 저장 실패 (CSV로 저장함): {e}"
+            
+    df.to_csv("student_records.csv", index=False)
+    return "CSV 파일로 저장되었습니다."
 
+# -----------------------------------------------------------
+# 3. 메인 화면 로직
+# -----------------------------------------------------------
 def main():
-    st.title("🎓 윈터스쿨 학습 매니저")
-    tab1, tab2 = st.tabs(["📝 입력", "📊 리포트"])
+    st.title("👨‍🏫 학습매니저")
+    
+    if "connections" not in st.secrets:
+        st.warning("⚠️ 구글 시트 미연동 상태 (CSV 임시 저장 모드)")
+
+    tab1, tab2 = st.tabs(["📝 데이터 입력", "📊 학부모 전송 리포트"])
     df = load_data()
 
+    # --- [탭 1] 데이터 입력 ---
     with tab1:
-        st.header("데이터 입력")
+        st.header("학생 데이터 관리")
+        
         student_list = df['이름'].unique().tolist()
-        student_option = st.radio("구분", ["기존 학생", "신규 등록"], horizontal=True)
+        mode = st.radio("작업 선택", ["기존 학생 기록 추가", "신규 학생 등록"], horizontal=True)
         
-        name, user_class, subject, book = "", "1B", "공통수학2", "고쟁이(내신+유형)"
-        if student_option == "기존 학생":
-            if student_list:
-                name = st.selectbox("이름 선택", student_list)
-                last_info = df[df['이름'] == name].iloc[-1]
-                user_class, subject, book = last_info['반'], last_info['수강과목'], last_info['학습교재']
-            else:
-                student_option = "신규 등록"
+        name, user_class, middle, high, note = "", "1B", "", "", ""
+        subject, book = "공통수학2", "고쟁이(내신+유형)"
         
-        if student_option == "신규 등록":
-            name = st.text_input("이름")
-            user_class = st.text_input("반", value="1B")
-            subject = st.text_input("과목", value="공통수학2")
-            book = st.text_input("교재", value="고쟁이(내신+유형)")
-
-        st.divider()
-        col1, col2 = st.columns(2)
-        with col1:
-            week = st.selectbox("주차", [f"{i}주차" for i in range(1, 10)])
-            hw_score = st.text_input("과제 점수(개인)", placeholder="A, 90점")
-            wrong_count = st.number_input("오답 수(개인)", min_value=0, step=1)
-        with col2:
-            hw_avg = st.text_input("과제 점수(반평균)", placeholder="B, 85점")
-            wrong_avg = st.number_input("오답 수(반평균)", min_value=0, step=1, value=5)
-
-        st.divider()
-        q_list = st.text_area("질문 문항", placeholder="15번, 22번")
-        difficulty = st.select_slider("난이도", ["최하", "하", "중", "상", "최상"], value="중")
-        comment = st.text_area("총평", value="1. 과제수행이 훌륭합니다.\n2. 이해도가 좋습니다.", height=100)
-
-        if st.button("저장하기", use_container_width=True):
-            if name:
-                new_data = {"이름": name, "반": user_class, "수강과목": subject, "학습교재": book, "주차": week, "작성일": datetime.today().strftime("%Y-%m-%d"), "과제수행_개인": hw_score, "과제수행_반평균": hw_avg, "오답수_개인": wrong_count, "오답수_반평균": wrong_avg, "질문문항": q_list, "난이도": difficulty, "총평": comment}
-                df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
-                save_data(df)
-                st.success("저장 완료!")
-                st.rerun()
-
-    with tab2:
-        if not df.empty:
-            view_name = st.selectbox("학생 확인", df['이름'].unique())
-            records = df[df['이름'] == view_name]
-            view_week = st.selectbox("주차 확인", records['주차'].unique())
-            rec = records[records['주차'] == view_week].iloc[-1]
+        if mode == "기존 학생 기록 추가":
+            if not student_list:
+                st.error("등록된 학생이 없습니다. 신규 등록을 먼저 해주세요.")
+                st.stop()
+                
+            name = st.selectbox("학생 선택", student_list)
             
-            st.markdown("---")
-            st.subheader(f"📄 {rec['이름']} - {rec['주차']} 분석표")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("반", rec['반']); c2.metric("과목", rec['수강과목']); c3.metric("교재", rec['학습교재'])
+            student_records = df[df['이름'] == name]
+            last_info = student_records.iloc[-1]
+            user_class = last_info.get('반', '1B')
+            subject = last_info.get('수강과목', '공통수학2')
+            book = last_info.get('학습교재', '고쟁이')
             
-            st.markdown("##### 성취도")
-            st.table(pd.DataFrame({"구분": ["학생", "반평균"], "과제": [rec['과제수행_개인'], rec['과제수행_반평균']], "오답": [rec['오답수_개인'], rec['오답수_반평균']]}).set_index("구분"))
-            
-            st.info(f"질문: {rec['질문문항']} (난이도: {rec['난이도']})")
-            st.success(f"총평: \n{rec['총평']}")
-            st.caption("캡처해서 보내세요.")
-            st.markdown("---")
-            with st.expander("엑셀 다운로드"):
-                st.dataframe(df)
-                st.download_button("CSV 다운로드", df.to_csv(index=False).encode('utf-8-sig'), "data.csv")
+            # 이전 주차 기록 보여주기
+            with st.expander(f"📖 {name} 학생의 이전 기록 보기 (최근 5주)", expanded=True):
+                history_df = student_records[['주차', '과제수행_개인', '오답수_개인', '총평']].tail(5)
+                st.dataframe(history_df, use_container_width=True, hide_index=True)
 
-if __name__ == "__main__":
-    main()
+        else: # 신규 학생 등록
+            st.subheader("초도 상담 데이터 입력")
+            col_new1, col_new2 = st.columns(2)
+            with col_new1:
+                name = st.text_input("학생 이름")
+                middle = st.text_input("출신 중학교")
+            with col_new2:
+                user_class = st.text_input("배정 반", value="1B")
+                high = st.text_input("배정 예정 고등학교")
+            
+            note = st.text_area("상
