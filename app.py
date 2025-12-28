@@ -11,7 +11,7 @@ except Exception as e:
 
 def generate_message(name, status, week, memo):
     # 업데이트 후에는 이 최신 모델이 가장 잘 작동합니다
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash-001')
     
     prompt = f"""
     당신은 친절하고 전문적인 학원 상담 실장입니다.
@@ -55,3 +55,4 @@ with st.container():
                 result = generate_message(name, status, week, memo)
             st.success("완료!")
             st.code(result, language=None)
+
