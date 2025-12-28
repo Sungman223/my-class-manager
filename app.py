@@ -1,16 +1,26 @@
 import streamlit as st
 import google.generativeai as genai
 
-# [중요] 발급받은 API 키를 여기에 넣어주세요
-GOOGLE_API_KEY = "AIzaSyC4Hp_RdWxqQ3Szt8jabrMOp8zDDm07JIw"
-
+# ---------------------------------------------------------
+# [보안 설정] API 키를 코드에 직접 적지 않고 Secrets에서 가져옵니다.
+# 이렇게 해야 GitHub에 코드를 올려도 키가 정지되지 않습니다.
+# ---------------------------------------------------------
 try:
-    genai.configure(api_key=GOOGLE_API_KEY)
+    # Streamlit 사이트의 'Secrets'에 저장된 키를 불러옵니다.
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=api_key)
+except FileNotFoundError:
+    st.error("⚠️ API 키를 찾을 수 없습니다. Streamlit 설정(Secrets)에 키를 등록해주세요.")
+    st.stop()
 except Exception as e:
-    st.error(f"API 키 설정 에러: {e}")
+    st.error(f"⚠️ 연결 오류 발생: {e}")
+    st.stop()
+
 
 def generate_message(name, status, week, memo):
-    # 업데이트 후에는 이 최신 모델이 가장 잘 작동합니다
+    """Gemini 1.5 Flash 모델을 이용해 상담 문자를 생성하는 함수"""
+    
+    # 최신 모델 사용
     model = genai.GenerativeModel('gemini-1.5-flash')
     
     prompt = f"""
@@ -34,26 +44,37 @@ def generate_message(name, status, week, memo):
     except Exception as e:
         return f"오류 발생: {str(e)}"
 
+# ---------------------------------------------------------
+# 화면 구성 (UI)
+# ---------------------------------------------------------
+
 st.set_page_config(page_title="학습매니저", page_icon="🧑‍🏫")
+
 st.title("🧑‍🏫 학습매니저")
 
 with st.container():
     col1, col2 = st.columns([2, 1])
+    
     with col1:
-        name = st.text_input("학생 이름", placeholder="예: 김철수")
+        name = st.text_input("학생 이름", placeholder="예: 이효승")
     with col2:
         status = st.radio("구분", ["재원생", "신규생"], horizontal=True)
 
     week = st.selectbox("주차", ["1주차", "2주차", "3주차", "4주차", "월말 평가"])
-    memo = st.text_area("상담 메모", height=150)
+    
+    memo = st.text_area("상담 메모", height=150, 
+                        placeholder="학생의 학습 태도, 특이사항, 진도 등을 자유롭게 적어주세요.")
 
     if st.button("저장 및 변환", type="primary"):
-        if not name or not memo:
-            st.warning("이름과 메모를 입력해주세요.")
+        if not name:
+            st.warning("학생 이름을 입력해주세요.")
+        elif not memo:
+            st.warning("상담 메모를 입력해주세요.")
         else:
-            with st.spinner("문자 생성 중..."):
-                result = generate_message(name, status, week, memo)
+            with st.spinner(f"{name} 학생의 상담 문자를 생성 중입니다..."):
+                result_text = generate_message(name, status, week, memo)
+            
             st.success("완료!")
-            st.code(result, language=None)
-
-
+            
+            st.subheader("결과 확인")
+            st.code(result_text, language=None)
