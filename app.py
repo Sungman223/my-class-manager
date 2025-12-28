@@ -3,7 +3,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import re
 import google.generativeai as genai 
-
+import streamlit as st
+import google.generativeai as genai
 # -----------------------------------------------------------
 # 1. 설정 및 Gemini 연결
 # -----------------------------------------------------------
@@ -114,3 +115,4 @@ def main():
     # --- [탭 1] 데이터 입력 ---
     with tab1:
         st.header
+
