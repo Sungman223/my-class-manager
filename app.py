@@ -18,7 +18,7 @@ def refine_text_with_ai(text):
     if not text:
         return ""
     try:
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         prompt = f"""
         너는 학원 선생님의 비서야. 선생님이 급하게 적은 아래 '상담 메모'를 읽고,
         학부모님께 보낼 수 있는 '정중하고 전문적인 문체'로 다듬어줘.
