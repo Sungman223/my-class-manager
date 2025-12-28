@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 
 # [중요] 발급받은 API 키를 여기에 넣어주세요
-GOOGLE_API_KEY = "AIzaSyB9YhBjWPaBayGYuBRKhdwt4veSRzyaNlA"
+GOOGLE_API_KEY = "AIzaSyC4Hp_RdWxqQ3Szt8jabrMOp8zDDm07JIw"
 
 try:
     genai.configure(api_key=GOOGLE_API_KEY)
@@ -11,7 +11,7 @@ except Exception as e:
 
 def generate_message(name, status, week, memo):
     # 업데이트 후에는 이 최신 모델이 가장 잘 작동합니다
-    model = genai.GenerativeModel('gemini-1.5-flash-001')
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
     prompt = f"""
     당신은 친절하고 전문적인 학원 상담 실장입니다.
@@ -55,4 +55,5 @@ with st.container():
                 result = generate_message(name, status, week, memo)
             st.success("완료!")
             st.code(result, language=None)
+
 
